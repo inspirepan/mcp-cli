@@ -9,6 +9,7 @@ authors = [
 dependencies = [
   "mcp",
   "click>=8.0",
+  "rich>=14.2.0",
 ]
 
 [project.optional-dependencies]

@@ -20,6 +20,8 @@ import mcp.types as types
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
+from rich.console import Console
+from rich.text import Text
 
 from .config import MergedConfig, ServerConfig
 
@@ -41,6 +43,9 @@ class ToolDescriptor:
     description: str
     input_schema: dict[str, Any]
     title: str | None = None
+
+
+console = Console(stderr=True)
 
 
 class McpServerClient:
@@ -75,17 +80,11 @@ class McpServerClient:
 
         if server_type == "http":
             if not self._config.url:
-                message = (
-                    f"Server '{self._config.name}' is missing 'url' for HTTP transport."
-                )
+                message = f"Server '{self._config.name}' is missing 'url' for HTTP transport."
                 raise RuntimeError(message)
 
             timeout = self._config.timeout if self._config.timeout is not None else 30.0
-            sse_read_timeout = (
-                self._config.sse_read_timeout
-                if self._config.sse_read_timeout is not None
-                else 60.0 * 5
-            )
+            sse_read_timeout = self._config.sse_read_timeout if self._config.sse_read_timeout is not None else 60.0 * 5
 
             http_client_cm = streamablehttp_client(
                 url=self._config.url,
@@ -95,12 +94,8 @@ class McpServerClient:
                 terminate_on_close=True,
             )
 
-            read, write, _get_session_id = await self._exit_stack.enter_async_context(
-                http_client_cm
-            )
-            session = await self._exit_stack.enter_async_context(
-                ClientSession(read, write)
-            )
+            read, write, _get_session_id = await self._exit_stack.enter_async_context(http_client_cm)
+            session = await self._exit_stack.enter_async_context(ClientSession(read, write))
             await session.initialize()
             self._session = session
             return
@@ -125,9 +120,9 @@ class McpServerClient:
             env=merged_env,
         )
 
-        stdio_transport = await self._exit_stack.enter_async_context(
-            stdio_client(server_params)
-        )
+        devnull = self._exit_stack.enter_context(open(os.devnull, "w", encoding="utf-8"))
+
+        stdio_transport = await self._exit_stack.enter_async_context(stdio_client(server_params, errlog=devnull))
         read, write = stdio_transport
         session = await self._exit_stack.enter_async_context(ClientSession(read, write))
         await session.initialize()
@@ -174,9 +169,7 @@ class McpServerClient:
 
         return descriptors
 
-    async def call_tool(
-        self, tool_name: str, arguments: dict[str, Any]
-    ) -> types.CallToolResult:
+    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         """Execute a tool on this server.
 
         Args:
@@ -230,7 +223,14 @@ async def discover_tools(config: MergedConfig) -> list[ToolDescriptor]:
         finally:
             await client.cleanup()
 
-    await asyncio.gather(
-        *(_load_for_server(server) for server in config.servers.values())
-    )
+    servers = list(config.servers.values())
+    if not servers:
+        return descriptors
+
+    server_names = ", ".join(server.name for server in servers)
+    status_text = Text(f"Loading MCP servers: {server_names}", style="bold green")
+
+    with console.status(status_text):
+        await asyncio.gather(*(_load_for_server(server) for server in servers))
+
     return descriptors
