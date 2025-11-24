@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 from click.testing import CliRunner
 
@@ -86,7 +86,7 @@ def test_help_sections_and_parameters(monkeypatch: Any) -> None:
     def fake_load_merged_config(cwd: Path | None = None) -> MergedConfig:  # type: ignore[override]
         return merged
 
-    async def fake_discover_tools(config: MergedConfig) -> List[ToolDescriptor]:  # type: ignore[override]
+    async def fake_discover_tools(config: MergedConfig) -> list[ToolDescriptor]:  # type: ignore[override]
         return [descriptor]
 
     monkeypatch.setattr(main_mod, "load_merged_config", fake_load_merged_config)

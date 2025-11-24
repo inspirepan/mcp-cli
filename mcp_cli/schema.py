@@ -8,7 +8,7 @@ JSON-based argument passing mode.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 
 @dataclass
@@ -30,14 +30,14 @@ class PropertySpec:
     cli_flag: str
     type: str
     required: bool
-    choices: Optional[List[str]] = None
-    description: Optional[str] = None
+    choices: list[str] | None = None
+    description: str | None = None
 
 
 _RESERVED_PARAM_NAMES: set[str] = {"json", "json_file", "json_stdin", "output"}
 
 
-def build_property_specs(schema: Dict[str, Any]) -> List[PropertySpec]:
+def build_property_specs(schema: dict[str, Any]) -> list[PropertySpec]:
     """Build CLI property specifications from a JSON Schema.
 
     Only simple object schemas are considered. For each eligible property a
@@ -67,7 +67,7 @@ def build_property_specs(schema: Dict[str, Any]) -> List[PropertySpec]:
     if not isinstance(required_props, list):
         required_props = []
 
-    specs: List[PropertySpec] = []
+    specs: list[PropertySpec] = []
 
     for raw_name, prop_schema in properties.items():
         if not isinstance(raw_name, str):
@@ -101,7 +101,7 @@ def build_property_specs(schema: Dict[str, Any]) -> List[PropertySpec]:
             description = None
 
         enum_values = prop_schema.get("enum")
-        choices: Optional[List[str]] = None
+        choices: list[str] | None = None
         if isinstance(enum_values, list) and enum_values:
             # Only keep simple string enums; other types are not mapped.
             if all(isinstance(item, str) for item in enum_values):

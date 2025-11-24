@@ -14,7 +14,7 @@ import os
 import shutil
 from contextlib import AsyncExitStack
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import mcp.types as types
 from mcp import ClientSession, StdioServerParameters
@@ -39,8 +39,8 @@ class ToolDescriptor:
     server_name: str
     tool_name: str
     description: str
-    input_schema: Dict[str, Any]
-    title: Optional[str] = None
+    input_schema: dict[str, Any]
+    title: str | None = None
 
 
 class McpServerClient:
@@ -60,7 +60,7 @@ class McpServerClient:
 
         self._config: ServerConfig = config
         self._exit_stack: AsyncExitStack = AsyncExitStack()
-        self._session: Optional[ClientSession] = None
+        self._session: ClientSession | None = None
 
     @property
     def name(self) -> str:
@@ -114,7 +114,7 @@ class McpServerClient:
         # command string if it is not found in PATH.
         resolved_command = shutil.which(self._config.command) or self._config.command
 
-        merged_env: Optional[Dict[str, str]] = None
+        merged_env: dict[str, str] | None = None
         if self._config.env:
             merged_env = dict(os.environ)
             merged_env.update(self._config.env)
@@ -133,7 +133,7 @@ class McpServerClient:
         await session.initialize()
         self._session = session
 
-    async def list_tools(self) -> List[ToolDescriptor]:
+    async def list_tools(self) -> list[ToolDescriptor]:
         """Return all tools exposed by this server.
 
         Returns:
@@ -148,7 +148,7 @@ class McpServerClient:
             raise RuntimeError(message)
 
         tools_response = await self._session.list_tools()
-        descriptors: List[ToolDescriptor] = []
+        descriptors: list[ToolDescriptor] = []
 
         for item in tools_response:
             if not isinstance(item, tuple):
@@ -175,7 +175,7 @@ class McpServerClient:
         return descriptors
 
     async def call_tool(
-        self, tool_name: str, arguments: Dict[str, Any]
+        self, tool_name: str, arguments: dict[str, Any]
     ) -> types.CallToolResult:
         """Execute a tool on this server.
 
@@ -209,7 +209,7 @@ class McpServerClient:
             self._session = None
 
 
-async def discover_tools(config: MergedConfig) -> List[ToolDescriptor]:
+async def discover_tools(config: MergedConfig) -> list[ToolDescriptor]:
     """Discover tools from all servers defined in the merged configuration.
 
     Args:
@@ -219,7 +219,7 @@ async def discover_tools(config: MergedConfig) -> List[ToolDescriptor]:
         A list of :class:`ToolDescriptor` instances across all servers.
     """
 
-    descriptors: List[ToolDescriptor] = []
+    descriptors: list[ToolDescriptor] = []
 
     async def _load_for_server(server_config: ServerConfig) -> None:
         client = McpServerClient(server_config)

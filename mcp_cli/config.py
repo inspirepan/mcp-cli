@@ -7,7 +7,7 @@ their contents, and merging the configured MCP servers into a single view.
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 MCP_SERVERS_KEY = "mcpServers"
 
@@ -41,24 +41,24 @@ class ServerConfig:
     """
 
     name: str
-    command: Optional[str] = None
-    args: List[str] = field(default_factory=list)
-    env: Dict[str, str] = field(default_factory=dict)
+    command: str | None = None
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
     type: str = "stdio"
-    url: Optional[str] = None
-    headers: Dict[str, str] = field(default_factory=dict)
-    timeout: Optional[float] = None
-    sse_read_timeout: Optional[float] = None
+    url: str | None = None
+    headers: dict[str, str] = field(default_factory=dict)
+    timeout: float | None = None
+    sse_read_timeout: float | None = None
 
 
 @dataclass
 class MergedConfig:
     """Merged MCP configuration across all discovered configuration files."""
 
-    servers: Dict[str, ServerConfig]
+    servers: dict[str, ServerConfig]
 
 
-def get_default_config_paths(cwd: Optional[Path] = None) -> List[Path]:
+def get_default_config_paths(cwd: Path | None = None) -> list[Path]:
     """Return existing configuration file paths in priority order.
 
     The search order (from lowest to highest priority) is:
@@ -81,14 +81,14 @@ def get_default_config_paths(cwd: Optional[Path] = None) -> List[Path]:
     claude_config = base_dir / ".claude" / "mcp.json"
     local_config = base_dir / "mcp.json"
 
-    existing_paths: List[Path] = []
+    existing_paths: list[Path] = []
     for path in (home_config, claude_config, local_config):
         if path.is_file():
             existing_paths.append(path)
     return existing_paths
 
 
-def _load_raw_configs(paths: List[Path]) -> List[Tuple[Path, Dict[str, Any]]]:
+def _load_raw_configs(paths: list[Path]) -> list[tuple[Path, dict[str, Any]]]:
     """Load raw JSON configuration objects from the given file paths.
 
     Args:
@@ -102,7 +102,7 @@ def _load_raw_configs(paths: List[Path]) -> List[Tuple[Path, Dict[str, Any]]]:
             or is not a JSON object.
     """
 
-    raw_configs: List[Tuple[Path, Dict[str, Any]]] = []
+    raw_configs: list[tuple[Path, dict[str, Any]]] = []
     for path in paths:
         try:
             text = path.read_text(encoding="utf-8")
@@ -125,8 +125,8 @@ def _load_raw_configs(paths: List[Path]) -> List[Tuple[Path, Dict[str, Any]]]:
 
 
 def _merge_server_maps(
-    configs: List[Tuple[Path, Dict[str, Any]]],
-) -> Dict[str, Dict[str, Any]]:
+    configs: list[tuple[Path, dict[str, Any]]],
+) -> dict[str, dict[str, Any]]:
     """Merge `mcpServers` maps from multiple configuration objects.
 
     Later configurations override earlier ones at the server level. For a
@@ -141,7 +141,7 @@ def _merge_server_maps(
         A mapping from server name to a merged server configuration dict.
     """
 
-    merged: Dict[str, Dict[str, Any]] = {}
+    merged: dict[str, dict[str, Any]] = {}
 
     for _path, data in configs:
         servers_obj = data.get(MCP_SERVERS_KEY)
@@ -164,13 +164,13 @@ def _merge_server_maps(
                 merged[server_name] = dict(server_value)
                 continue
 
-            combined: Dict[str, Any] = dict(existing)
+            combined: dict[str, Any] = dict(existing)
 
             # Shallow-merge environment variables if present in either config.
             existing_env = existing.get("env")
             new_env = server_value.get("env")
             if isinstance(existing_env, dict) or isinstance(new_env, dict):
-                env_merged: Dict[str, Any] = {}
+                env_merged: dict[str, Any] = {}
                 if isinstance(existing_env, dict):
                     env_merged.update(existing_env)
                 if isinstance(new_env, dict):
@@ -188,7 +188,7 @@ def _merge_server_maps(
     return merged
 
 
-def _server_from_mapping(name: str, data: Dict[str, Any]) -> ServerConfig:
+def _server_from_mapping(name: str, data: dict[str, Any]) -> ServerConfig:
     """Create a :class:`ServerConfig` instance from a raw mapping.
 
     The configuration supports multiple transport types:
@@ -233,7 +233,7 @@ def _server_from_mapping(name: str, data: Dict[str, Any]) -> ServerConfig:
             raise InvalidConfigError(message)
 
         headers_value = data.get("headers", {})
-        headers: Dict[str, str] = {}
+        headers: dict[str, str] = {}
         if isinstance(headers_value, dict):
             for key, value in headers_value.items():
                 if not isinstance(key, str) or not isinstance(value, str):
@@ -247,7 +247,7 @@ def _server_from_mapping(name: str, data: Dict[str, Any]) -> ServerConfig:
             raise InvalidConfigError(message)
 
         timeout_value = data.get("timeout")
-        timeout: Optional[float] = None
+        timeout: float | None = None
         if timeout_value is not None:
             if not isinstance(timeout_value, (int, float)):
                 message = f"Server '{name}' has an invalid 'timeout' field; expected a number."
@@ -255,7 +255,7 @@ def _server_from_mapping(name: str, data: Dict[str, Any]) -> ServerConfig:
             timeout = float(timeout_value)
 
         sse_timeout_raw = data.get("sseReadTimeout", data.get("sse_read_timeout"))
-        sse_read_timeout: Optional[float] = None
+        sse_read_timeout: float | None = None
         if sse_timeout_raw is not None:
             if not isinstance(sse_timeout_raw, (int, float)):
                 message = f"Server '{name}' has an invalid 'sseReadTimeout' field; expected a number."
@@ -291,7 +291,7 @@ def _server_from_mapping(name: str, data: Dict[str, Any]) -> ServerConfig:
         raise InvalidConfigError(message)
 
     env_value = data.get("env", {})
-    env: Dict[str, str] = {}
+    env: dict[str, str] = {}
     if isinstance(env_value, dict):
         for key, value in env_value.items():
             if not isinstance(key, str) or not isinstance(value, str):
@@ -311,7 +311,7 @@ def _server_from_mapping(name: str, data: Dict[str, Any]) -> ServerConfig:
     )
 
 
-def load_merged_config(cwd: Optional[Path] = None) -> MergedConfig:
+def load_merged_config(cwd: Path | None = None) -> MergedConfig:
     """Load and merge MCP configuration from the standard config locations.
 
     Args:
@@ -354,7 +354,7 @@ def load_merged_config(cwd: Optional[Path] = None) -> MergedConfig:
         )
         raise ConfigNotFoundError(message)
 
-    servers: Dict[str, ServerConfig] = {}
+    servers: dict[str, ServerConfig] = {}
     for server_name, server_data in server_maps.items():
         servers[server_name] = _server_from_mapping(server_name, server_data)
 

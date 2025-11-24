@@ -6,7 +6,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import click
 import mcp.types as types
@@ -21,9 +21,9 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._merged_config: Optional[MergedConfig] = None
-        self._tool_descriptors: Optional[List[ToolDescriptor]] = None
-        self._config_error: Optional[Exception] = None
+        self._merged_config: MergedConfig | None = None
+        self._tool_descriptors: list[ToolDescriptor] | None = None
+        self._config_error: Exception | None = None
 
     def _ensure_discovery(self) -> None:
         """Load configuration and discover tools if not already done."""
@@ -53,7 +53,7 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         self._merged_config = merged_config
         self._tool_descriptors = descriptors
 
-    def list_commands(self, ctx: click.Context) -> List[str]:  # type: ignore[override]
+    def list_commands(self, ctx: click.Context) -> list[str]:  # type: ignore[override]
         """Return all available subcommand names.
 
         When configuration is missing or invalid, an empty list is returned
@@ -69,7 +69,7 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         ]
         return sorted(set(names))
 
-    def get_command(self, ctx: click.Context, name: str) -> Optional[click.Command]:  # type: ignore[override]
+    def get_command(self, ctx: click.Context, name: str) -> click.Command | None:  # type: ignore[override]
         """Return a click command for the given subcommand name."""
 
         # Special-case a `help` subcommand, which behaves similarly to
@@ -81,7 +81,7 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
             @click.argument("command_name", required=False)
             @click.pass_context
             def _help_command(
-                inner_ctx: click.Context, command_name: Optional[str]
+                inner_ctx: click.Context, command_name: str | None
             ) -> None:
                 parent_ctx = inner_ctx.parent
                 if parent_ctx is None:
@@ -116,7 +116,7 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         if not self._tool_descriptors or self._merged_config is None:
             return None
 
-        target_tool: Optional[ToolDescriptor] = None
+        target_tool: ToolDescriptor | None = None
         for descriptor in self._tool_descriptors:
             if f"{descriptor.server_name}__{descriptor.tool_name}" == name:
                 target_tool = descriptor
@@ -142,7 +142,7 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         if not commands:
             return
 
-        rows: List[tuple[str, str]] = []
+        rows: list[tuple[str, str]] = []
         for name in commands:
             cmd = self.get_command(ctx, name)
             if cmd is None:
@@ -165,7 +165,7 @@ class ToolCommand(click.Command):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._schema_param_names: set[str] = set()
-        self._input_schema_text: Optional[str] = None
+        self._input_schema_text: str | None = None
 
     def set_schema_param_names(self, names: set[str]) -> None:
         """Mark which parameters come from the tool input schema."""
@@ -240,7 +240,7 @@ def _build_tool_command(
         json_stdin = bool(cli_kwargs.pop("json_stdin", False))
         output = str(cli_kwargs.pop("output", "text"))
 
-        flag_args: Dict[str, Any] = {}
+        flag_args: dict[str, Any] = {}
         for spec in property_specs:
             if (
                 spec.param_name in cli_kwargs
@@ -268,7 +268,7 @@ def _build_tool_command(
     schema_param_names: set[str] = set()
 
     for spec in property_specs:
-        option_kwargs: Dict[str, Any] = {
+        option_kwargs: dict[str, Any] = {
             "help": spec.description or "",
             "required": spec.required,
         }
@@ -359,10 +359,10 @@ def _build_tool_command(
 
 
 def _parse_json_arguments(
-    json_arg: Optional[str],
-    json_file: Optional[Path],
+    json_arg: str | None,
+    json_file: Path | None,
     json_stdin: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Parse JSON arguments from CLI options.
 
     Exactly one of ``json_arg``, ``json_file`` or ``json_stdin`` may be
@@ -375,7 +375,7 @@ def _parse_json_arguments(
             "Only one of --json, --json-file or --json-stdin may be used at a time."
         )
 
-    raw: Optional[str] = None
+    raw: str | None = None
     if json_stdin:
         raw = sys.stdin.read()
     elif json_file is not None:
@@ -398,7 +398,7 @@ def _parse_json_arguments(
 
 
 async def _run_tool(
-    server_name: str, tool_name: str, arguments: Dict[str, Any], output: str
+    server_name: str, tool_name: str, arguments: dict[str, Any], output: str
 ) -> None:
     """Execute a single tool call and print its result."""
 
@@ -441,7 +441,7 @@ cli = McpToolCLI(
 )
 
 
-def _rewrite_args_for_help(argv: List[str]) -> List[str]:
+def _rewrite_args_for_help(argv: list[str]) -> list[str]:
     """Rewrite arguments to support ``help`` as a subcommand or suffix.
 
     Supported patterns:
