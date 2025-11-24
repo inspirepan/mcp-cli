@@ -5,13 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
 import click
 import mcp.types as types
+from rich.console import Console
+from rich.syntax import Syntax
 
-from .client import McpServerClient, ToolDescriptor, discover_tools
+from .client import McpServerClient, ToolDescriptor, discover_tools, discover_tools_for_server
 from .config import ConfigError, ConfigNotFoundError, MergedConfig, load_merged_config
 from .schema import build_property_specs
 
@@ -34,9 +37,7 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         try:
             merged_config = load_merged_config()
         except ConfigError as exc:
-            click.echo(
-                click.style(f"Configuration error: {exc}", fg="red"), file=sys.stderr
-            )
+            click.echo(click.style(f"Configuration error: {exc}", fg="red"), file=sys.stderr)
             self._config_error = exc
             return
 
@@ -53,6 +54,42 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         self._merged_config = merged_config
         self._tool_descriptors = descriptors
 
+    def _ensure_discovery_for_server(self, server_name: str) -> None:
+        """Load configuration and discover tools for a single server.
+
+        This is used by get_command to avoid starting unrelated MCP servers
+        when invoking a specific tool subcommand.
+        """
+
+        if self._tool_descriptors is not None or self._config_error is not None:
+            return
+
+        try:
+            merged_config = load_merged_config()
+        except ConfigError as exc:
+            click.echo(click.style(f"Configuration error: {exc}", fg="red"), file=sys.stderr)
+            self._config_error = exc
+            return
+
+        self._merged_config = merged_config
+
+        if server_name not in merged_config.servers:
+            message = f"Server '{server_name}' is not defined in configuration."
+            self._config_error = ConfigNotFoundError(message)
+            return
+
+        try:
+            descriptors = asyncio.run(discover_tools_for_server(merged_config, server_name))
+        except Exception as exc:  # pragma: no cover - unexpected runtime failure
+            click.echo(
+                click.style(f"Error during tool discovery: {exc}", fg="red"),
+                file=sys.stderr,
+            )
+            self._config_error = exc
+            return
+
+        self._tool_descriptors = descriptors
+
     def list_commands(self, ctx: click.Context) -> list[str]:  # type: ignore[override]
         """Return all available subcommand names.
 
@@ -64,9 +101,7 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         if not self._tool_descriptors:
             return []
 
-        names = [
-            f"{tool.server_name}__{tool.tool_name}" for tool in self._tool_descriptors
-        ]
+        names = [f"{tool.server_name}__{tool.tool_name}" for tool in self._tool_descriptors]
         return sorted(set(names))
 
     def get_command(self, ctx: click.Context, name: str) -> click.Command | None:  # type: ignore[override]
@@ -80,14 +115,10 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
             @click.command(name="help")
             @click.argument("command_name", required=False)
             @click.pass_context
-            def _help_command(
-                inner_ctx: click.Context, command_name: str | None
-            ) -> None:
+            def _help_command(inner_ctx: click.Context, command_name: str | None) -> None:
                 parent_ctx = inner_ctx.parent
                 if parent_ctx is None:
-                    raise click.ClickException(
-                        "Internal error: missing parent context for help command."
-                    )
+                    raise click.ClickException("Internal error: missing parent context for help command.")
 
                 if not command_name:
                     click.echo(parent_ctx.get_help())
@@ -102,16 +133,19 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
 
             return _help_command
 
-        self._ensure_discovery()
+        server_name: str | None = None
+        if "__" in name:
+            server_name = name.split("__", 1)[0]
+
+        if server_name is not None:
+            self._ensure_discovery_for_server(server_name)
+        else:
+            self._ensure_discovery()
 
         if self._config_error is not None:
-            # Wrap configuration errors in a command so that they are presented
-            # as a user-friendly Click error.
-            @click.command(name=name)
-            def _error_command() -> None:
-                raise click.ClickException(str(self._config_error))
-
-            return _error_command
+            # Surface configuration errors immediately so they are visible even
+            # when the user requests --help for the command.
+            raise click.ClickException(str(self._config_error))
 
         if not self._tool_descriptors or self._merged_config is None:
             return None
@@ -129,13 +163,9 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         if server_config is None:
             return None
 
-        return _build_tool_command(
-            name, server_config.name, target_tool.tool_name, target_tool
-        )
+        return _build_tool_command(name, server_config.name, target_tool.tool_name, target_tool)
 
-    def format_commands(
-        self, ctx: click.Context, formatter: click.HelpFormatter
-    ) -> None:  # type: ignore[override]
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:  # type: ignore[override]
         """Render the list of available MCP tools in the help output."""
 
         commands = self.list_commands(ctx)
@@ -150,7 +180,7 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
             rows.append((name, cmd.get_short_help_str()))
 
         if rows:
-            with formatter.section("Available MCP Tools"):
+            with formatter.section(click.style("Available MCP Tools", fg="cyan", bold=True)):
                 formatter.write_dl(rows)
 
 
@@ -177,9 +207,7 @@ class ToolCommand(click.Command):
 
         self._input_schema_text = text
 
-    def format_options(
-        self, ctx: click.Context, formatter: click.HelpFormatter
-    ) -> None:  # type: ignore[override]
+    def format_options(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:  # type: ignore[override]
         """Render Parameters and Options sections separately.
 
         Parameters are the options derived from the tool's input schema, while
@@ -199,11 +227,11 @@ class ToolCommand(click.Command):
                 option_records.append(record)
 
         if schema_records:
-            with formatter.section("Parameters"):
+            with formatter.section(click.style("Parameters", fg="green", bold=True)):
                 formatter.write_dl(schema_records)
 
         if option_records:
-            with formatter.section("Options"):
+            with formatter.section(click.style("Options", fg="yellow", bold=True)):
                 formatter.write_dl(option_records)
 
     def format_help(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:  # type: ignore[override]
@@ -212,9 +240,30 @@ class ToolCommand(click.Command):
         super().format_help(ctx, formatter)
 
         if self._input_schema_text:
-            with formatter.section("Input schema"):
-                for line in self._input_schema_text.splitlines():
+            with formatter.section(click.style("Input schema", fg="magenta", bold=True)):
+                for line in _format_json_schema_with_rich(self._input_schema_text):
                     formatter.write_text(line)
+
+
+def _format_json_schema_with_rich(schema_text: str) -> list[str]:
+    """Format JSON schema text with rich syntax highlighting when appropriate.
+
+    When stdout is not a TTY, the original plain-text lines are returned to
+    avoid leaking ANSI color codes into redirected or captured output.
+    """
+
+    try:
+        if not sys.stdout.isatty():
+            return schema_text.splitlines()
+    except Exception:
+        return schema_text.splitlines()
+
+    buffer = StringIO()
+    console = Console(file=buffer, force_terminal=True, color_system="auto")
+    syntax = Syntax(schema_text, "json", word_wrap=False, theme="ansi_light")
+    console.print(syntax)
+    value = buffer.getvalue()
+    return value.splitlines()
 
 
 def _build_tool_command(
@@ -242,10 +291,7 @@ def _build_tool_command(
 
         flag_args: dict[str, Any] = {}
         for spec in property_specs:
-            if (
-                spec.param_name in cli_kwargs
-                and cli_kwargs[spec.param_name] is not None
-            ):
+            if spec.param_name in cli_kwargs and cli_kwargs[spec.param_name] is not None:
                 flag_args[spec.name] = cli_kwargs[spec.param_name]
 
         try:
@@ -333,10 +379,7 @@ def _build_tool_command(
     # Enrich the command help with the original tool description. The input
     # schema itself is rendered via ToolCommand.format_help to preserve
     # newlines and indentation.
-    description = (
-        descriptor.description
-        or f"Execute tool '{tool_name}' on server '{server_name}'."
-    )
+    description = descriptor.description or f"Execute tool '{tool_name}' on server '{server_name}'."
     help_parts = [description]
     if property_specs:
         help_parts.append(
@@ -344,9 +387,7 @@ def _build_tool_command(
             "More complex inputs should be provided via --json, --json-file or --json-stdin."
         )
     else:
-        help_parts.append(
-            "Arguments should be provided as JSON via --json, --json-file or --json-stdin."
-        )
+        help_parts.append("Arguments should be provided as JSON via --json, --json-file or --json-stdin.")
 
     help_text = "\n\n".join(help_parts)
     cmd.help = help_text
@@ -371,9 +412,7 @@ def _parse_json_arguments(
 
     sources_provided = sum(bool(value) for value in (json_arg, json_file, json_stdin))
     if sources_provided > 1:
-        raise ValueError(
-            "Only one of --json, --json-file or --json-stdin may be used at a time."
-        )
+        raise ValueError("Only one of --json, --json-file or --json-stdin may be used at a time.")
 
     raw: str | None = None
     if json_stdin:
@@ -397,9 +436,7 @@ def _parse_json_arguments(
     return value
 
 
-async def _run_tool(
-    server_name: str, tool_name: str, arguments: dict[str, Any], output: str
-) -> None:
+async def _run_tool(server_name: str, tool_name: str, arguments: dict[str, Any], output: str) -> None:
     """Execute a single tool call and print its result."""
 
     merged = load_merged_config()

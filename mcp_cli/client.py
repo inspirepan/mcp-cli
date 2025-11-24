@@ -202,15 +202,8 @@ class McpServerClient:
             self._session = None
 
 
-async def discover_tools(config: MergedConfig) -> list[ToolDescriptor]:
-    """Discover tools from all servers defined in the merged configuration.
-
-    Args:
-        config: Merged configuration containing all known servers.
-
-    Returns:
-        A list of :class:`ToolDescriptor` instances across all servers.
-    """
+async def _discover_from_servers(servers: list[ServerConfig]) -> list[ToolDescriptor]:
+    """Discover tools from the provided server configurations."""
 
     descriptors: list[ToolDescriptor] = []
 
@@ -223,14 +216,46 @@ async def discover_tools(config: MergedConfig) -> list[ToolDescriptor]:
         finally:
             await client.cleanup()
 
-    servers = list(config.servers.values())
     if not servers:
         return descriptors
 
     server_names = ", ".join(server.name for server in servers)
-    status_text = Text(f"Loading MCP servers: {server_names}", style="bold green")
+    status_text = Text(f"Loading MCP servers: {server_names}", style="green")
 
     with console.status(status_text):
         await asyncio.gather(*(_load_for_server(server) for server in servers))
 
     return descriptors
+
+
+async def discover_tools(config: MergedConfig) -> list[ToolDescriptor]:
+    """Discover tools from all servers defined in the merged configuration.
+
+    Args:
+        config: Merged configuration containing all known servers.
+
+    Returns:
+        A list of :class:`ToolDescriptor` instances across all servers.
+    """
+
+    servers = list(config.servers.values())
+    return await _discover_from_servers(servers)
+
+
+async def discover_tools_for_server(config: MergedConfig, server_name: str) -> list[ToolDescriptor]:
+    """Discover tools from a single server identified by name.
+
+    Args:
+        config: Merged configuration containing all known servers.
+        server_name: Name of the server to discover tools from.
+
+    Returns:
+        A list of :class:`ToolDescriptor` instances for the requested server.
+        If the server is not present in the configuration, an empty list is returned.
+    """
+
+    server_config = config.servers.get(server_name)
+    if server_config is None:
+        return []
+
+    return await _discover_from_servers([server_config])
