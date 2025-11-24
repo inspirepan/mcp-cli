@@ -28,17 +28,35 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         self._tool_descriptors: list[ToolDescriptor] | None = None
         self._config_error: Exception | None = None
 
-    def _ensure_discovery(self) -> None:
-        """Load configuration and discover tools if not already done."""
+    def _load_config(self) -> MergedConfig | None:
+        """Load and cache the merged configuration with user-facing errors.
 
-        if self._tool_descriptors is not None or self._config_error is not None:
-            return
+        When configuration loading fails, the exception is stored in
+        ``self._config_error`` and ``None`` is returned so callers can
+        short-circuit further work.
+        """
+
+        if self._merged_config is not None or self._config_error is not None:
+            return self._merged_config
 
         try:
             merged_config = load_merged_config()
         except ConfigError as exc:
             click.echo(click.style(f"Configuration error: {exc}", fg="red"), file=sys.stderr)
             self._config_error = exc
+            return None
+
+        self._merged_config = merged_config
+        return merged_config
+
+    def _ensure_discovery(self) -> None:
+        """Load configuration and discover tools if not already done."""
+
+        if self._tool_descriptors is not None or self._config_error is not None:
+            return
+
+        merged_config = self._load_config()
+        if merged_config is None:
             return
 
         try:
@@ -64,14 +82,9 @@ class McpToolCLI(click.MultiCommand):  # type: ignore[misc]
         if self._tool_descriptors is not None or self._config_error is not None:
             return
 
-        try:
-            merged_config = load_merged_config()
-        except ConfigError as exc:
-            click.echo(click.style(f"Configuration error: {exc}", fg="red"), file=sys.stderr)
-            self._config_error = exc
+        merged_config = self._load_config()
+        if merged_config is None:
             return
-
-        self._merged_config = merged_config
 
         if server_name not in merged_config.servers:
             message = f"Server '{server_name}' is not defined in configuration."
