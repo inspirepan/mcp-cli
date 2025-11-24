@@ -12,7 +12,9 @@ from mcp_cli.config import MergedConfig, ServerConfig
 from mcp_cli.main import cli
 
 
-def test_load_merged_config_with_sample_mcp_json(tmp_path: Path, monkeypatch: Any) -> None:
+def test_load_merged_config_with_sample_mcp_json(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
     """Ensure that load_merged_config picks up the example mcp.json.
 
     This test uses the actual mcp.json from the repository root, but runs in
@@ -27,7 +29,9 @@ def test_load_merged_config_with_sample_mcp_json(tmp_path: Path, monkeypatch: An
     # Symlink mcp.json into the temporary directory so that the loader can
     # operate on a controlled cwd.
     target_config = tmp_path / "mcp.json"
-    target_config.write_text(source_config.read_text(encoding="utf-8"), encoding="utf-8")
+    target_config.write_text(
+        source_config.read_text(encoding="utf-8"), encoding="utf-8"
+    )
 
     merged = config_mod.load_merged_config(cwd=tmp_path)
 
@@ -51,7 +55,9 @@ def test_help_sections_and_parameters(monkeypatch: Any) -> None:
     # start real MCP servers during tests.
     merged = MergedConfig(
         servers={
-            "filesystem": ServerConfig(name="filesystem", command="dummy", args=[], env={}),
+            "filesystem": ServerConfig(
+                name="filesystem", command="dummy", args=[], env={}
+            ),
         }
     )
 
